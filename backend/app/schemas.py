@@ -21,6 +21,8 @@ class RequestCreate(BaseModel):
     description: str = Field(min_length=1, max_length=10000)
     request_type: Type
     priority: Priority = "Normal"
+    analysis_id: int | None = Field(default=None, gt=0)
+    accepted_ai_fields: list[Literal['request_type', 'priority', 'department']] = Field(default_factory=list, max_length=3)
     @field_validator("title", "description")
     @classmethod
     def strip_nonempty(cls, v):

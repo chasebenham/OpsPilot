@@ -72,3 +72,76 @@ def test_demo_user_directory_reports_database_failure(env):
     assert response.status_code == 503
     assert 'Database unavailable or not initialized' in response.json()['detail']
     assert 'database offline' not in response.text
+
+def mock_analysis():
+    from app.ai_schemas import AnalysisResult, ExtractedDetails
+    from app.ai_service import ProviderResult
+    details = {key: None for key in ExtractedDetails.model_fields}; details['affected_system'] = 'CRM'
+    result = AnalysisResult(request_type='IT Incident', suggested_priority='High', suggested_department='IT', summary='CRM unavailable', business_impact=None, extracted_details=details, missing_information=['How many users?'], explanation='Service issue', needs_human_review=True)
+    return ProviderResult(result, ['Model recommends human review'], 'test-model', 'test-model-v1', 100, 50)
+
+def test_ai_review_ownership_staleness_and_history(env, monkeypatch):
+    from app import ai_service
+    monkeypatch.setattr(ai_service, 'analyze', lambda draft: mock_analysis())
+    response=env.post('/api/v1/ai/analyze-request',headers=headers(1),json={'description':'CRM is down'})
+    assert response.status_code==201
+    aid=response.json()['id']
+    body={'title':'CRM','description':'CRM is down','request_type':'IT Incident','priority':'Normal','analysis_id':aid,'accepted_ai_fields':['priority']}
+    assert env.post('/api/v1/requests',headers=headers(2),json=body).status_code==404
+    assert env.post('/api/v1/requests',headers=headers(1),json={**body,'description':'Different description'}).status_code==409
+    assert env.get('/api/v1/requests',headers=headers(1)).json()['total']==0
+    created=env.post('/api/v1/requests',headers=headers(1),json=body); assert created.status_code==201
+    rid=created.json()['id']; saved=env.get(f'/api/v1/requests/{rid}/ai-analyses',headers=headers(1)).json()[0]
+    assert saved['review_decision']=='accepted' and saved['accepted_fields']==['priority']
+    assert saved['submitted_changes']['priority']=={'suggested':'High','submitted':'Normal'}
+    assert env.get(f'/api/v1/requests/{rid}/ai-analyses',headers=headers(2)).status_code==404
+    assert env.post('/api/v1/requests',headers=headers(1),json=body).status_code==409
+    assert any(e['event_type']=='ai_analysis_reviewed' for e in env.get(f'/api/v1/requests/{rid}/events',headers=headers(1)).json())
+
+def test_ai_missing_key_and_dismissed_analysis(env, monkeypatch):
+    from app import ai_service
+    monkeypatch.delenv('OPENAI_API_KEY',raising=False)
+    assert env.post('/api/v1/ai/analyze-request',headers=headers(1),json={'description':'CRM is down'}).status_code==503
+    assert create(env)['status']=='Submitted'
+    monkeypatch.setattr(ai_service, 'analyze', lambda draft: mock_analysis())
+    aid=env.post('/api/v1/ai/analyze-request',headers=headers(1),json={'description':'CRM is down'}).json()['id']
+    r=env.post('/api/v1/requests',headers=headers(1),json={'title':'CRM','description':'CRM is down','request_type':'IT Incident','analysis_id':aid,'accepted_ai_fields':[]})
+    assert r.status_code==201
+    assert env.get(f"/api/v1/requests/{r.json()['id']}/ai-analyses",headers=headers(1)).json()[0]['review_decision']=='dismissed'
+    assert env.post('/api/v1/ai/analyze-request',json={'description':'CRM is down'}).status_code==422
+    assert env.post('/api/v1/ai/analyze-request',headers=headers(1),json={'description':'x'*10001}).status_code==422
+
+def test_ai_service_flags_security_and_handles_refusal(env, monkeypatch):
+    from types import SimpleNamespace
+    from app import ai_service
+    from app.ai_schemas import AnalyzeDraft
+    monkeypatch.setenv('OPENAI_API_KEY','test-key')
+    parsed=mock_analysis().result; parsed.suggested_priority='Critical'; parsed.needs_human_review=False
+    response=SimpleNamespace(status='completed',output=[],output_parsed=parsed,usage=SimpleNamespace(input_tokens=2,output_tokens=3),model='test-v1')
+    fake=SimpleNamespace(responses=SimpleNamespace(parse=lambda **kwargs:response))
+    monkeypatch.setattr(ai_service,'OpenAI',lambda **kwargs:fake)
+    outcome=ai_service.analyze(AnalyzeDraft(description='Suspected phishing'))
+    assert outcome.result.needs_human_review and len(outcome.flags)==2
+    response.output=[SimpleNamespace(content=[SimpleNamespace(type='refusal')])]
+    with pytest.raises(ai_service.AIServiceError,match='declined'): ai_service.analyze(AnalyzeDraft(description='test'))
+    response.output=[]; response.status='incomplete'
+    with pytest.raises(ai_service.AIServiceError,match='incomplete'): ai_service.analyze(AnalyzeDraft(description='test'))
+
+def test_ai_provider_timeout_invalid_and_input_limit(env, monkeypatch):
+    from types import SimpleNamespace
+    import httpx
+    from openai import APITimeoutError
+    from app import ai_service
+    from app.ai_schemas import AnalyzeDraft
+    monkeypatch.setenv('OPENAI_API_KEY','test-key')
+    def timeout(**kwargs): raise APITimeoutError(request=httpx.Request('POST','https://example.test'))
+    fake=SimpleNamespace(responses=SimpleNamespace(parse=timeout))
+    monkeypatch.setattr(ai_service,'OpenAI',lambda **kwargs:fake)
+    with pytest.raises(ai_service.AIServiceError) as exc: ai_service.analyze(AnalyzeDraft(description='test'))
+    assert exc.value.category=='timeout' and exc.value.status==504
+    fake.responses.parse=lambda **kwargs:SimpleNamespace(status='completed',output=[],output_parsed=None)
+    with pytest.raises(ai_service.AIServiceError) as exc: ai_service.analyze(AnalyzeDraft(description='test'))
+    assert exc.value.category=='invalid_output'
+    monkeypatch.setenv('OPENAI_MAX_INPUT_CHARS','3')
+    with pytest.raises(ai_service.AIServiceError) as exc: ai_service.analyze(AnalyzeDraft(description='test'))
+    assert exc.value.category=='input_too_long' and exc.value.status==422

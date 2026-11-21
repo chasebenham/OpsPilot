@@ -7,3 +7,7 @@ Requests start Submitted. The transition table lives in the API: Submitted can b
 Employees and finance approvers see their own requests; assigned agents see assigned work and their own requests; managers see their department's assigned work and their own requests; operations admins see all. Managers and assigned agents can manage visible assigned work; only admins can move work between departments. Requesters may add clarifications. Newly submitted unassigned work requires an operations admin to assign it. The demo header is impersonation, not authentication.
 
 Future AI interpretations, policies, approvals and workflow tasks should be separate entities linked to requests, with explicit authorization and versioned policy decisions. No future functionality is simulated as completed.
+
+## AI request intelligence
+
+An optional user-initiated OpenAI Responses call produces a structured, advisory analysis. Owned drafts can be linked only after the requester reviews them; the server verifies ownership and a description hash and records the review with the request transaction. Request access controls govern history. The model never assigns, approves, changes status or resolves a request. See [AI intelligence](ai-intelligence.md) for schema, evaluation and limitations.

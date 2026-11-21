@@ -5,8 +5,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select, or_, func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
-from .models import SessionLocal, Department, User, Request, RequestEvent, utcnow
+from .models import SessionLocal, Department, User, Request, RequestEvent, AIAnalysis, utcnow
 from . import schemas as s
+from . import ai_schemas as ai
+from . import ai_service
 
 app = FastAPI(title="OpsPilot API", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_methods=["*"], allow_headers=["*"])
@@ -49,6 +51,51 @@ def event(db, req, user, kind, old=None, new=None):
 def save(db, req):
     db.commit(); db.refresh(req); return req
 
+def attach_analysis(db, user, req, analysis_id, accepted_fields):
+    analysis = db.scalar(select(AIAnalysis).where(AIAnalysis.id == analysis_id).with_for_update())
+    if not analysis or analysis.initiated_by_user_id != user.id:
+        raise HTTPException(404, 'Analysis not found')
+    if analysis.request_id is not None:
+        raise HTTPException(409, 'Analysis has already been reviewed')
+    if analysis.source_hash != ai_service.source_hash(req.description):
+        raise HTTPException(409, 'The request description changed since analysis; reanalyze before attaching it')
+    if len(set(accepted_fields)) != len(accepted_fields): raise HTTPException(422, 'Duplicate accepted fields')
+    result = analysis.structured_result
+    if req.request_type == 'IT Incident' and req.priority == 'Critical':
+        flags = list(analysis.validation_flags)
+        if 'Critical incident requires human review' not in flags: flags.append('Critical incident requires human review')
+        analysis.validation_flags = flags
+        result = {**result, 'needs_human_review': True}
+        analysis.structured_result = result
+    analysis.request_id = req.id
+    analysis.accepted_fields = accepted_fields
+    analysis.submitted_changes = {'request_type': {'suggested': result['request_type'], 'submitted': req.request_type}, 'priority': {'suggested': result['suggested_priority'], 'submitted': req.priority}, 'department': {'suggested': result['suggested_department'], 'submitted': None}}
+    analysis.review_decision = 'accepted' if accepted_fields else 'dismissed'
+    analysis.reviewed_at = utcnow()
+    event(db, req, user, 'ai_analysis_reviewed', None, analysis.review_decision)
+
+@app.post('/api/v1/ai/analyze-request', response_model=ai.AnalysisOut, status_code=201)
+def analyze_request(payload: ai.AnalyzeDraft, db: Session = DB, user: User = UserDep):
+    try: outcome = ai_service.analyze(payload)
+    except ai_service.AIServiceError as exc: raise HTTPException(exc.status, exc.message) from exc
+    analysis = AIAnalysis(initiated_by_user_id=user.id, source_hash=ai_service.source_hash(payload.description), model_name=outcome.model_name, model_identifier=outcome.model_identifier, analysis_status='completed', structured_result=outcome.result.model_dump(mode='json'), validation_flags=outcome.flags, input_tokens=outcome.input_tokens, output_tokens=outcome.output_tokens)
+    db.add(analysis); db.commit(); db.refresh(analysis)
+    return analysis
+
+@app.get('/api/v1/requests/{request_id}/ai-analyses', response_model=list[ai.AnalysisOut])
+def analysis_history(request_id: int, db: Session = DB, user: User = UserDep):
+    get_visible(db, user, request_id)
+    return db.scalars(select(AIAnalysis).where(AIAnalysis.request_id == request_id).order_by(AIAnalysis.created_at.desc(), AIAnalysis.id.desc())).all()
+
+@app.post('/api/v1/requests/{request_id}/ai-review', response_model=ai.AnalysisOut)
+def review_existing(request_id: int, payload: ai.ReviewInput, db: Session = DB, user: User = UserDep):
+    req = get_visible(db, user, request_id)
+    require_manage(user, req)
+    if req.status in ('Closed', 'Cancelled'): raise HTTPException(409, 'Request is terminal')
+    attach_analysis(db, user, req, payload.analysis_id, payload.accepted_fields)
+    db.commit()
+    return db.get(AIAnalysis, payload.analysis_id)
+
 @app.get('/api/v1/demo-users', response_model=list[s.UserOut])
 def demo_users(db: Session = DB):
     # Bootstrap directory only: no role or user supplied by the client is trusted for authorization.
@@ -57,9 +104,12 @@ def demo_users(db: Session = DB):
 def departments(db: Session = DB, user: User = UserDep): return db.scalars(select(Department).order_by(Department.name)).all()
 @app.post('/api/v1/requests', response_model=s.RequestOut, status_code=201)
 def create(payload: s.RequestCreate, db: Session = DB, user: User = UserDep):
-    req = Request(**payload.model_dump(), status="Submitted", requester_id=user.id)
+    data = payload.model_dump(exclude={'analysis_id', 'accepted_ai_fields'})
+    if payload.analysis_id is None and payload.accepted_ai_fields: raise HTTPException(422, 'Accepted fields require an analysis')
+    req = Request(**data, status="Submitted", requester_id=user.id)
     db.add(req); db.flush(); req.human_readable_id = f"REQ-{req.id:04d}"
     event(db, req, user, "created", None, "Submitted")
+    if payload.analysis_id is not None: attach_analysis(db, user, req, payload.analysis_id, payload.accepted_ai_fields)
     return save(db, req)
 @app.get('/api/v1/requests', response_model=s.RequestPage)
 def list_requests(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), search: str | None = Query(None, max_length=200), request_type: s.Type | None = None, priority: s.Priority | None = None, status: s.Status | None = None, department_id: int | None = Query(None, gt=0), db: Session = DB, user: User = UserDep):

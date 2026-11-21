@@ -75,3 +75,21 @@ def test_postgres_request_lifecycle_and_dashboard(pg_client):
     assert c.get('/api/v1/dashboard', headers=h(2)).json()['total'] == 0
     # A new session/request reads the committed state after all mutations.
     assert c.get(f'/api/v1/requests/{rid}', headers=h(3)).json()['status'] == 'Resolved'
+
+def test_postgres_ai_review_persists_and_is_scoped(pg_client, monkeypatch):
+    from app import ai_service
+    from app.ai_schemas import AnalysisResult, ExtractedDetails
+    details={key:None for key in ExtractedDetails.model_fields}; details['affected_system']='CRM'
+    result=AnalysisResult(request_type='IT Incident',suggested_priority='High',suggested_department='IT',summary='CRM unavailable',business_impact=None,extracted_details=details,missing_information=['When did it start?'],explanation='Outage',needs_human_review=False)
+    monkeypatch.setattr(ai_service,'analyze',lambda draft:ai_service.ProviderResult(result,[],'test','test-v1',30,20))
+    c=pg_client
+    aid=c.post('/api/v1/ai/analyze-request',headers=h(1),json={'description':'CRM outage'}).json()['id']
+    body={'title':'CRM','description':'CRM outage','request_type':'IT Incident','priority':'Critical','analysis_id':aid,'accepted_ai_fields':['priority']}
+    assert c.post('/api/v1/requests',headers=h(2),json=body).status_code==404
+    response=c.post('/api/v1/requests',headers=h(1),json=body); assert response.status_code==201
+    rid=response.json()['id']
+    saved=c.get(f'/api/v1/requests/{rid}/ai-analyses',headers=h(1)).json()[0]
+    assert saved['model_identifier']=='test-v1' and saved['structured_result']['needs_human_review']
+    assert 'Critical incident requires human review' in saved['validation_flags']
+    assert saved['submitted_changes']['priority']=={'suggested':'High','submitted':'Critical'}
+    assert c.get(f'/api/v1/requests/{rid}/ai-analyses',headers=h(2)).status_code==404

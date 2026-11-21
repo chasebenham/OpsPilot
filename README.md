@@ -1,6 +1,6 @@
-# OpsPilot
+﻿# OpsPilot
 
-OpsPilot is a Phase 1 portfolio prototype for Meridian Group, a fictional professional services organization. It provides persistent service requests, scoped demo roles, assignment, validated lifecycle transitions, an audit trail, and database-derived dashboards. AI analysis, purchasing approvals and workflow automation are future work.
+OpsPilot is a portfolio prototype for Meridian Group, a fictional professional services organization. It provides persistent service requests, scoped demo roles, assignment, validated lifecycle transitions, an audit trail, and database-derived dashboards. Optional AI request analysis supports human review; purchasing approvals and workflow automation remain future work.
 
 ## Prerequisites
 
@@ -55,6 +55,23 @@ Remove-Item Env:TEST_POSTGRES_URL
 
 ## Prototype and security limitations
 
-The demo-user selector and `X-Demo-User-Id` header simulate identity. Anyone able to call the API can select any seeded identity; this is not authentication, and the application must not be exposed to untrusted users or deployed as a production service. Authorization rules are enforced against the selected database user but do not establish identity. Data is fictional. No AI, purchase approval, multi-step workflow, SSO, rate limiting, CSRF controls, or production hardening is implemented. Purchase completion is blocked pending the approval phase. Demo reset deletes records and is intended only for a disposable local database.
+The demo-user selector and `X-Demo-User-Id` header simulate identity. Anyone able to call the API can select any seeded identity; this is not authentication, and the application must not be exposed to untrusted users or deployed as a production service. Authorization rules are enforced against the selected database user but do not establish identity. Data is fictional. No purchase approval, multi-step workflow, SSO, rate limiting, CSRF controls, or production hardening is implemented. Purchase completion is blocked pending the approval phase. Demo reset deletes records and is intended only for a disposable local database.
 
 
+
+
+## Optional AI request intelligence
+
+Copy `backend/.env.example` to `backend/.env` and set `OPENAI_API_KEY` there (never commit it). The backend reads `OPENAI_MODEL` (default `gpt-6-luna`), `OPENAI_TIMEOUT_SECONDS`, `OPENAI_MAX_OUTPUT_TOKENS`, and `OPENAI_MAX_INPUT_CHARS`. Restart the backend after changing environment variables and run `alembic upgrade head`. With no key, the Analyze action explains that AI is unavailable and manual request creation still works.
+
+Selecting Analyze explicitly sends the entered draft title, type, and description to OpenAI. Avoid sensitive data in a demo. Analysis is advisory and must be reviewed: choose suggestions selectively, edit the final request, and submit. Department suggestions do not assign work. If the description changes, reanalyze to attach a current result; otherwise manual submission remains available. Successful linked analyses and review choices are visible to users who can view the request.
+
+The OpenAI Responses API uses schema-constrained Pydantic output. It does not guarantee truth or prevent prompt injection. Missing credentials, provider errors, refusals, incomplete output and timeouts do not generate substitute recommendations. Critical and suspected security issues receive deterministic review flags; all recommendations require human review. The system does not approve purchases, change status or assign work.
+
+Analyses store extracted text and a hash of the input description (not the raw draft or API key), model identity, token counts and review choices. Abandoned draft analyses currently have no automatic expiry. The demo identity switcher is not authentication, so do not expose this prototype publicly or use real sensitive information. See [AI architecture and evaluation](docs/ai-intelligence.md).
+
+Live evaluation is opt-in and incurs API charges. From `backend`, after configuring a key:
+
+```powershell
+.\.venv\Scripts\python.exe -m evaluation.run --live --limit 30
+```

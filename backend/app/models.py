@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import os
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, ForeignKey, String, Text, DateTime, Boolean, CheckConstraint
+from sqlalchemy import create_engine, ForeignKey, String, Text, DateTime, Boolean, CheckConstraint, JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 load_dotenv()
@@ -52,3 +52,22 @@ class RequestEvent(Base):
     previous_value: Mapped[str | None] = mapped_column(Text)
     new_value: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+class AIAnalysis(Base):
+    __tablename__ = 'ai_analyses'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    request_id: Mapped[int | None] = mapped_column(ForeignKey('requests.id', ondelete='CASCADE'), index=True)
+    initiated_by_user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), index=True)
+    source_hash: Mapped[str] = mapped_column(String(64))
+    model_name: Mapped[str] = mapped_column(String(100))
+    model_identifier: Mapped[str | None] = mapped_column(String(150))
+    analysis_status: Mapped[str] = mapped_column(String(30), default='completed')
+    structured_result: Mapped[dict] = mapped_column(JSON)
+    validation_flags: Mapped[list] = mapped_column(JSON)
+    accepted_fields: Mapped[list | None] = mapped_column(JSON)
+    submitted_changes: Mapped[dict | None] = mapped_column(JSON)
+    review_decision: Mapped[str | None] = mapped_column(String(30))
+    input_tokens: Mapped[int | None]
+    output_tokens: Mapped[int | None]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

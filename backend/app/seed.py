@@ -3,7 +3,7 @@ import argparse
 from datetime import timedelta
 from sqlalchemy import select, delete, text
 from sqlalchemy.engine import make_url
-from .models import SessionLocal, Department, User, Request, RequestEvent, utcnow, DATABASE_URL
+from .models import SessionLocal, Department, User, Request, RequestEvent, AIAnalysis, utcnow, DATABASE_URL
 NAMES = ['IT', 'Finance', 'Marketing', 'Operations', 'People & HR']
 TITLES = [
 ('CRM platform outage','IT Incident'), ('Employee account access problem','IT Incident'), ('$4,500 analytics software purchase','Purchase Request'), ('Laptop replacement request','Purchase Request'), ('Marketing landing page project','Cross-Department Project'), ('Client presentation design request','Cross-Department Project'),
@@ -17,9 +17,9 @@ def seed(reset=False):
             url = make_url(DATABASE_URL)
             if url.get_backend_name() != 'postgresql' or url.host not in ('localhost', '127.0.0.1', '::1') or url.database != 'opspilot':
                 raise SystemExit('Reset is restricted to the local PostgreSQL database named opspilot.')
-            for model in (RequestEvent, Request, User, Department): db.execute(delete(model))
+            for model in (AIAnalysis, RequestEvent, Request, User, Department): db.execute(delete(model))
             if db.bind.dialect.name == 'postgresql':
-                for table in ('request_events', 'requests', 'users', 'departments'):
+                for table in ('ai_analyses', 'request_events', 'requests', 'users', 'departments'):
                     db.execute(text("SELECT setval(pg_get_serial_sequence(:table, 'id'), 1, false)"), {'table': table})
             db.commit()
         if db.scalar(select(Department.id).limit(1)) is not None:
@@ -49,5 +49,3 @@ def seed(reset=False):
         db.commit(); print('Seeded 5 departments, 17 fictional users, and 36 requests.')
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(); parser.add_argument('--reset', action='store_true'); args = parser.parse_args(); seed(args.reset)
-
-

@@ -1,4 +1,4 @@
-﻿import type { Department, Event, User } from './api';
+import type { Department, Event, User } from './api';
 
 const labels: Record<string, string> = {
   created: 'Request submitted',
@@ -9,6 +9,7 @@ const labels: Record<string, string> = {
   description_changed: 'Description updated',
   priority_changed: 'Priority changed',
   clarification: 'Clarification added',
+  ai_analysis_reviewed: 'AI analysis reviewed',
 };
 
 export function describeActivity(event: Event, users: User[], departments: Department[]) {
@@ -21,6 +22,7 @@ export function describeActivity(event: Event, users: User[], departments: Depar
   let detail: string;
   if (event.event_type === 'created') detail = 'Submitted';
   else if (event.event_type === 'description_changed') detail = 'Request description updated';
+  else if (event.event_type === 'ai_analysis_reviewed') detail = event.new_value === 'accepted' ? 'Suggestions reviewed' : 'Suggestions dismissed';
   else if (event.event_type === 'clarification') detail = event.new_value ?? '';
   else if (event.event_type in labels) detail = `${resolve(event.previous_value)} → ${resolve(event.new_value)}`;
   else detail = 'Request updated';
