@@ -45,6 +45,14 @@ npm test
 
 Tests use an isolated in-memory SQLite database; they do not replace PostgreSQL integration testing.
 
+To run the PostgreSQL integration test, point `TEST_POSTGRES_URL` at a disposable database whose user can create schemas. The test creates and removes its own randomly named schema; it does not use the application's tables. For example, in PowerShell from `backend`:
+
+```powershell
+$env:TEST_POSTGRES_URL = 'postgresql+psycopg://opspilot:opspilot@localhost:5432/opspilot'
+.\.venv\Scripts\python.exe -m pytest -q tests/test_postgres_integration.py
+Remove-Item Env:TEST_POSTGRES_URL
+```
+
 ## Prototype and security limitations
 
 The demo-user selector and `X-Demo-User-Id` header simulate identity. Anyone able to call the API can select any seeded identity; this is not authentication, and the application must not be exposed to untrusted users or deployed as a production service. Authorization rules are enforced against the selected database user but do not establish identity. Data is fictional. No AI, purchase approval, multi-step workflow, SSO, rate limiting, CSRF controls, or production hardening is implemented. Purchase completion is blocked pending the approval phase. Demo reset deletes records and is intended only for a disposable local database.

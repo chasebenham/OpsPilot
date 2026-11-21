@@ -1,12 +1,19 @@
-from fastapi import FastAPI, Depends, Header, HTTPException, Query
+import logging
+from fastapi import FastAPI, Depends, Header, HTTPException, Query, Request as HTTPRequest
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import select, or_, func
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from .models import SessionLocal, Department, User, Request, RequestEvent, utcnow
 from . import schemas as s
 
 app = FastAPI(title="OpsPilot API", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_methods=["*"], allow_headers=["*"])
+@app.exception_handler(SQLAlchemyError)
+async def database_error(request: HTTPRequest, exc: SQLAlchemyError):
+    logging.getLogger(__name__).exception("Database request failed", exc_info=exc)
+    return JSONResponse(status_code=503, content={"detail": "Database unavailable or not initialized. Check PostgreSQL, run migrations, and seed the demo database."})
 def db_session():
     with SessionLocal() as db: yield db
 def current_user(x_demo_user_id: int = Header(...), db: Session = Depends(db_session)):
@@ -116,4 +123,5 @@ def dashboard(db: Session = DB, user: User = UserDep):
     ids = [r.id for r in rows]
     recent = db.scalars(select(RequestEvent).where(RequestEvent.request_id.in_(ids)).order_by(RequestEvent.created_at.desc(), RequestEvent.id.desc()).limit(8)).all() if ids else []
     distribution = {t: sum(r.request_type == t for r in rows) for t in ('IT Incident','Purchase Request','Cross-Department Project')}
-    return {"total": len(rows), "open": sum(r.status not in ('Resolved','Closed','Cancelled') for r in rows), "attention": sum(r.status == 'Needs Information' or (r.priority in ('High','Critical') and r.status not in ('Resolved','Closed','Cancelled')) for r in rows), "resolved": sum(r.status in ('Resolved','Closed') for r in rows), "distribution": distribution, "recent_activity": [s.EventOut.model_validate(e).model_dump(mode='json') for e in recent]}
+    references = {r.id: r.human_readable_id for r in rows}
+    return {"total": len(rows), "open": sum(r.status not in ('Resolved','Closed','Cancelled') for r in rows), "attention": sum(r.status == 'Needs Information' or (r.priority in ('High','Critical') and r.status not in ('Resolved','Closed','Cancelled')) for r in rows), "resolved": sum(r.status in ('Resolved','Closed') for r in rows), "distribution": distribution, "recent_activity": [{**s.EventOut.model_validate(e).model_dump(mode='json'), "request_reference": references[e.request_id]} for e in recent]}

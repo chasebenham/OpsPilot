@@ -60,3 +60,15 @@ def test_purchase_cannot_complete_without_approval(env):
     r=env.post('/api/v1/requests',headers=headers(1),json={'title':'Software','description':'Need license','request_type':'Purchase Request'}).json(); assign(env,r['id'])
     for status in ('Triaged','In Progress'): assert env.post(f"/api/v1/requests/{r['id']}/transition",headers=headers(3),json={'status':status}).status_code==200
     assert env.post(f"/api/v1/requests/{r['id']}/transition",headers=headers(3),json={'status':'Resolved'}).status_code==409
+
+def test_demo_user_directory_reports_database_failure(env):
+    from sqlalchemy.exc import OperationalError
+    class BrokenDatabase:
+        def scalars(self, statement):
+            raise OperationalError('select users', {}, Exception('database offline'))
+    def unavailable(): yield BrokenDatabase()
+    app.dependency_overrides[db_session] = unavailable
+    response = env.get('/api/v1/demo-users')
+    assert response.status_code == 503
+    assert 'Database unavailable or not initialized' in response.json()['detail']
+    assert 'database offline' not in response.text
