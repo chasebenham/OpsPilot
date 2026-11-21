@@ -1,6 +1,6 @@
-﻿# OpsPilot
+# OpsPilot
 
-OpsPilot is a portfolio prototype for Meridian Group, a fictional professional services organization. It provides persistent service requests, scoped demo roles, assignment, validated lifecycle transitions, an audit trail, and database-derived dashboards. Optional AI request analysis supports human review; purchasing approvals and workflow automation remain future work.
+OpsPilot is a portfolio prototype for Meridian Group, a fictional professional services organization. It provides persistent service requests, scoped demo roles, assignment, validated lifecycle transitions, an audit trail, and database-derived dashboards. Optional AI request analysis supports human review; deterministic routing, purchase approvals and incident response targets are implemented as fictional demo workflows. Cross-department project orchestration remains future work.
 
 ## Prerequisites
 
@@ -55,7 +55,7 @@ Remove-Item Env:TEST_POSTGRES_URL
 
 ## Prototype and security limitations
 
-The demo-user selector and `X-Demo-User-Id` header simulate identity. Anyone able to call the API can select any seeded identity; this is not authentication, and the application must not be exposed to untrusted users or deployed as a production service. Authorization rules are enforced against the selected database user but do not establish identity. Data is fictional. No purchase approval, multi-step workflow, SSO, rate limiting, CSRF controls, or production hardening is implemented. Purchase completion is blocked pending the approval phase. Demo reset deletes records and is intended only for a disposable local database.
+The demo-user selector and `X-Demo-User-Id` header simulate identity. Anyone able to call the API can select any seeded identity; this is not authentication, and the application must not be exposed to untrusted users or deployed as a production service. Authorization rules are enforced against the selected database user but do not establish identity. Data is fictional. No external purchasing or payment, cross-department task orchestration, SSO, rate limiting, CSRF controls, or production hardening is implemented. Demo reset deletes records and is intended only for a disposable local database.
 
 
 
@@ -75,3 +75,14 @@ Live evaluation is opt-in and incurs API charges. From `backend`, after configur
 ```powershell
 .\.venv\Scripts\python.exe -m evaluation.run --live --limit 30
 ```
+
+## Phase 3 policy workflows
+
+After migrations, run `python -m app.seed` from `backend` to add fictional approvers and separately named workflow examples without modifying existing requests. Start an independent local escalation worker in another PowerShell terminal:
+
+```powershell
+cd C:\Users\chase\Documents\GitHub\OpsPilot\backend
+.\.venv\Scripts\python.exe -m app.escalation_worker --watch --interval 60
+```
+
+The worker must remain running for periodic checks. Run it without `--watch` for one evaluation. Purchases require confirmed USD total commitment and sequential approvals; generic status changes cannot bypass financial authorization. Critical and overdue incidents produce in-app escalations, not external notifications. For rules, role limits, examples and holidays see [policy engine](docs/policy-engine.md), [purchase approvals](docs/approval-workflows.md) and [incident SLAs](docs/incident-sla.md).

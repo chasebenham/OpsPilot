@@ -8,3 +8,4 @@ python-dotenv>=1,<2
 pytest>=8,<9
 httpx>=0.27,<1
 openai>=2,<3
+tzdata>=2025.1

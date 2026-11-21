@@ -1,0 +1,9 @@
+# Meridian deterministic policy engine
+
+Phase 3 policy lives in `backend/app/policy.py` and transaction-oriented workflow services live in `backend/app/workflows.py`, independent of OpenAI. The policy identifier `meridian-2026-01` is written to routing, approval, SLA and escalation records. Rules operate on confirmed request fields, not unreviewed AI suggestions. The AI can offer text, but it cannot authorize, assign, change status or supply confirmed contract totals automatically.
+
+New IT incidents route to IT; purchases to Finance intake; cross-department projects to Operations intake. No individual assignee is selected. If a destination is missing, the request is retained with a manual-triage decision; repeated processing does not overwrite a routed or manually assigned department. Existing requests are not rerouted by migrations. An Operations Admin can reevaluate a legacy request and supply a reason when overriding a department. Routing, approval and SLA outcomes appear as policy decisions and audit events.
+
+Approval data and incident SLA records are separate from the generic request lifecycle. See [approval workflows](approval-workflows.md) and [incident SLA](incident-sla.md). Demo identity is impersonation through a header, not authentication. Policy rules are fictional prototype behavior, not certified compliance controls. Requests can contain sensitive information; do not deploy this prototype to an untrusted network.
+
+The overview shows counts for requests visible to the selected user. Automatically routed counts requests with a recorded successful routing decision; approval counts use the latest cycle; overdue and escalated counts concern active, unacknowledged incidents with a recorded breach/escalation; manual review counts requests with routing holds, missing or invalidated purchase details, unresolved approvers, or unacknowledged critical incidents. The periodic evaluator must run for time-based counts to update.

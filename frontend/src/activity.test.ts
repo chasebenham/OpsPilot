@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import { describeActivity } from './activity';
 import { isRoleDependentQuery } from './queryScope';
@@ -8,7 +8,7 @@ const users=[{id:1,name:'Admin',role:'Operations Admin',department_id:1},{id:3,n
 const departments=[{id:1,name:'IT'}] as Department[];
 describe('activity descriptions',()=>{
  it('resolves user and department IDs to readable names',()=>{
-  expect(describeActivity(base,users,departments)).toEqual({label:'Assignee changed',detail:'Unassigned → IT Agent',actor:'Admin'});
+  expect(describeActivity(base,users,departments)).toEqual({label:'Assigned to IT Agent',detail:'Unassigned → IT Agent',actor:'Admin'});
   expect(describeActivity({...base,event_type:'assigned_department_id_changed',new_value:'1'},users,departments).detail).toBe('Unassigned → IT');
  });
  it('never displays unknown IDs or treats an unknown actor as the system',()=>{
@@ -18,6 +18,11 @@ describe('activity descriptions',()=>{
  it('formats status and clarification actions',()=>{
   expect(describeActivity({...base,event_type:'status_changed',previous_value:'Submitted',new_value:'Triaged'},users,departments).detail).toBe('Submitted → Triaged');
   expect(describeActivity({...base,event_type:'clarification',new_value:'More information'},users,departments).detail).toBe('More information');
+ });
+ it('uses known actors for AI reviews and does not invent unavailable names',()=>{
+  expect(describeActivity({...base,event_type:'ai_analysis_reviewed',new_value:'accepted'},users,departments).label).toBe('AI recommendations reviewed by Admin');
+  expect(describeActivity({...base,event_type:'ai_analysis_reviewed',actor_id:99,new_value:'accepted'},users,departments).label).toBe('AI recommendations reviewed');
+  expect(describeActivity({...base,event_type:'assigned_department_id_changed',new_value:'1'},users,departments).label).toBe('Department changed to IT');
  });
 });
 it('resets cached role-dependent queries for all users while retaining the demo directory',async()=>{

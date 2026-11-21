@@ -1,0 +1,9 @@
+﻿# Incident response targets and escalations
+
+The initial-response policy is Critical: 15 elapsed minutes, immediate manager-attention escalation; High: 1 elapsed hour; Normal: 4 business hours; Low: 8 business hours (one business day). Business time is Monday–Friday, 09:00–17:00 America/Phoenix; timestamps are stored in UTC. No holiday calendar is implemented, so weekdays that are holidays are treated as business days. Arizona's configured Phoenix zone does not observe daylight saving time.
+
+New incidents receive a response target based on creation time. Only an explicit authorized acknowledgement stops the response clock; viewing is not acknowledgement. Changing priority creates a new SLA revision calculated from the original creation timestamp while retaining older deadlines and breaches. Critical incidents, overdue unacknowledged incidents and unassigned incidents generate durable, idempotent policy escalation records and audit events. Escalation is an in-app record, not an email, SMS or Slack message. Historical escalation records remain after acknowledgement; the attention view shows active unacknowledged incidents.
+
+Run one evaluation from `backend` with `python -m app.escalation_worker`. For continuous local evaluation, leave `python -m app.escalation_worker --watch --interval 60` running in a separate terminal. The worker retries after an error; the last successful run is visible on Incident attention. This local process must be kept running independently of the browser; it is not a production scheduler.
+
+To demonstrate, create a Critical IT Incident and inspect Policy & automation and Incident attention as an IT manager or Operations Admin. Assign an eligible IT agent and explicitly acknowledge the incident. An overdue example is included in the fictional seed. Use an injected clock in tests rather than waiting for a real deadline.

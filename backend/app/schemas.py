@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from .workflow_schemas import PurchaseInput
 Type = Literal["IT Incident", "Purchase Request", "Cross-Department Project"]
 Priority = Literal["Low", "Normal", "High", "Critical"]
 Status = Literal["Submitted", "Needs Information", "Triaged", "In Progress", "Resolved", "Closed", "Cancelled"]
@@ -23,6 +24,7 @@ class RequestCreate(BaseModel):
     priority: Priority = "Normal"
     analysis_id: int | None = Field(default=None, gt=0)
     accepted_ai_fields: list[Literal['request_type', 'priority', 'department']] = Field(default_factory=list, max_length=3)
+    purchase_details: PurchaseInput | None = None
     @field_validator("title", "description")
     @classmethod
     def strip_nonempty(cls, v):
@@ -41,6 +43,7 @@ class RequestUpdate(BaseModel):
 class Assignment(BaseModel):
     department_id: int | None
     user_id: int | None = None
+    reason: str | None = Field(default=None, max_length=2000)
 class Transition(BaseModel):
     status: Status
 class Clarification(BaseModel):
