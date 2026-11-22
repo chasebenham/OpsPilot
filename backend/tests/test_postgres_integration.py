@@ -42,6 +42,62 @@ def pg_client():
 
 def h(user_id): return {'X-Demo-User-Id': str(user_id)}
 
+def test_postgres_analytics_and_synthetic_evaluation_persistence(pg_client, monkeypatch):
+    from app import ai_service
+    from test_api import mock_analysis
+    monkeypatch.setenv('OPENAI_API_KEY', 'test-only')
+    monkeypatch.setattr(ai_service, 'analyze', lambda draft: mock_analysis())
+    c=pg_client
+    created=c.post('/api/v1/requests', headers=h(1), json={'title':'Test incident','description':'CRM issue','request_type':'IT Incident','priority':'High'})
+    assert created.status_code == 201
+    summary=c.get('/api/v1/analytics/overview', headers=h(4))
+    assert summary.status_code == 200, summary.text
+    assert summary.json()['requests']['total'] == '0–4'
+    assert c.get('/api/v1/analytics/overview?request_type=IT%20Incident', headers=h(4)).status_code == 403
+    assert c.get('/api/v1/analytics/overview',headers=h(1)).status_code == 403
+    run=c.post('/api/v1/analytics/evaluations',headers=h(4),json={'case_limit':1,'budget_usd':10,'input_usd_per_million':1,'output_usd_per_million':5})
+    assert run.status_code==201, run.text
+    assert c.get('/api/v1/analytics/evaluations',headers=h(4)).json()[0]['id']==run.json()['id']
+
+def test_postgres_synthetic_analytics_trends_and_filters(pg_client, monkeypatch):
+    from contextlib import contextmanager
+    from app import synthetic_dataset
+    @contextmanager
+    def test_dataset():
+        yield from app.dependency_overrides[db_session]()
+    monkeypatch.setattr(synthetic_dataset,'open_dataset',test_dataset)
+    c=pg_client
+    for kind in ('IT Incident','Purchase Request'):
+        assert c.post('/api/v1/requests',headers=h(1),json={'title':kind,'description':'Fictional test request','request_type':kind,'priority':'High'}).status_code==201
+    report=c.get('/api/v1/analytics/synthetic',headers=h(4))
+    assert report.status_code==200, report.text
+    assert report.json()['requests']['total']==2
+    assert sum(x['count'] for x in report.json()['requests']['monthly_volume'])==2
+    assert c.get('/api/v1/analytics/synthetic?request_type=IT%20Incident',headers=h(4)).json()['requests']['total']==1
+    assert c.get('/api/v1/analytics/synthetic?start=2999-01-01',headers=h(4)).json()['requests']['total']==0
+    assert c.get('/api/v1/analytics/synthetic',headers=h(1)).status_code==403
+
+def test_postgres_evaluation_concurrent_run_protection(pg_client, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from app import ai_service
+    from test_api import mock_analysis
+    monkeypatch.setenv('OPENAI_API_KEY','test-only')
+    entered=Event(); release=Event()
+    def slow(_draft):
+        entered.set()
+        assert release.wait(10)
+        return mock_analysis()
+    monkeypatch.setattr(ai_service,'analyze',slow)
+    body={'case_limit':1,'budget_usd':10,'input_usd_per_million':1,'output_usd_per_million':5}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first=pool.submit(pg_client.post,'/api/v1/analytics/evaluations',headers=h(4),json=body)
+        assert entered.wait(10)
+        second=pool.submit(pg_client.post,'/api/v1/analytics/evaluations',headers=h(4),json=body)
+        try: assert second.result(timeout=10).status_code==409
+        finally: release.set()
+        assert first.result(timeout=10).status_code==201
+
 def test_postgres_request_lifecycle_and_dashboard(pg_client):
     c = pg_client
     assert len(c.get('/api/v1/demo-users').json()) == 4
@@ -147,3 +203,136 @@ def test_postgres_escalation_worker_repeat_and_acknowledgement(pg_client):
     assert state['slas'][0]['breached_at'] is not None and state['slas'][0]['first_acknowledged_at'] is not None
     assert state['slas'][0]['escalation_status']=='Acknowledged'
     assert pg_client.get('/api/v1/incidents/attention',headers=h(4)).json()['items']==[]
+
+def test_postgres_concurrent_project_task_completion(pg_client):
+    from concurrent.futures import ThreadPoolExecutor
+    r=pg_client.post('/api/v1/requests',headers=h(1),json={'title':'Project','description':'Launch','request_type':'Cross-Department Project'}).json()
+    wid=pg_client.post(f"/api/v1/requests/{r['id']}/workflow",headers=h(1)).json()['id']
+    plan={'objective':'Launch','tasks':[{'key':'first','title':'First','description':'First task','department_id':1,'depends_on':[]},{'key':'next','title':'Next','description':'Next task','department_id':1,'depends_on':['first']}]}
+    assert pg_client.put(f'/api/v1/workflows/{wid}/plan',headers=h(1),json=plan).status_code==200
+    assert pg_client.post(f'/api/v1/workflows/{wid}/submit',headers=h(1)).status_code==200
+    assert pg_client.post(f'/api/v1/workflows/{wid}/activate',headers=h(1)).status_code==200
+    tasks=pg_client.get(f'/api/v1/workflows/{wid}',headers=h(1)).json()['tasks'];tid=tasks[0]['id']
+    assert pg_client.post(f'/api/v1/workflows/{wid}/tasks/{tid}/transition',headers=h(4),json={'status':'In Progress'}).status_code==200
+    def finish(_): return pg_client.post(f'/api/v1/workflows/{wid}/tasks/{tid}/transition',headers=h(4),json={'status':'Completed'}).status_code
+    with ThreadPoolExecutor(max_workers=2) as pool: results=sorted(pool.map(finish,range(2)))
+    assert results==[200,409]
+    snap=pg_client.get(f'/api/v1/workflows/{wid}',headers=h(1)).json()
+    assert len([e for e in snap['events'] if e['event_type']=='task_unblocked'])==1
+    assert snap['tasks'][1]['status']=='Ready'
+    next_id=snap['tasks'][1]['id']
+    assert pg_client.post(f'/api/v1/workflows/{wid}/complete',headers=h(1)).status_code==409
+    assert pg_client.post(f'/api/v1/workflows/{wid}/tasks/{next_id}/transition',headers=h(4),json={'status':'In Progress'}).status_code==200
+    assert pg_client.post(f'/api/v1/workflows/{wid}/tasks/{next_id}/transition',headers=h(4),json={'status':'Completed'}).status_code==200
+    assert pg_client.post(f'/api/v1/workflows/{wid}/complete',headers=h(1)).json()['status']=='Completed'
+    assert pg_client.get(f"/api/v1/requests/{r['id']}",headers=h(1)).json()['status']=='Resolved'
+
+@pytest.mark.parametrize('change', ['plan','description','activation','deactivate_user'])
+def test_postgres_ai_planning_does_not_lock_or_overwrite_changes(pg_client,monkeypatch,change):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from types import SimpleNamespace
+    from app import project_ai
+    from app.models import User
+    r=pg_client.post('/api/v1/requests',headers=h(1),json={'title':'Concurrent project','description':'Original project','request_type':'Cross-Department Project'}).json()
+    wid=pg_client.post(f"/api/v1/requests/{r['id']}/workflow",headers=h(1)).json()['id']
+    original={'objective':'Original plan','tasks':[{'key':'one','title':'Original','description':'Work','department_id':1,'depends_on':[]}]}
+    assert pg_client.put(f'/api/v1/workflows/{wid}/plan',headers=h(1),json=original).status_code==200
+    if change=='activation': assert pg_client.post(f'/api/v1/workflows/{wid}/submit',headers=h(1)).status_code==200
+    entered=Event();release=Event()
+    proposed=project_ai.SuggestedPlan(objective='AI proposal',tasks=[project_ai.SuggestedTask(key='ai',title='AI task',description='Work',department='IT',priority='Normal',required=True,depends_on=[])],deliverables=[],missing_information=[],risks=[],explanation='Review')
+    def slow_provider(*args):
+        entered.set()
+        if not release.wait(8): raise RuntimeError('Test provider release timed out')
+        return proposed,'test',SimpleNamespace(input_tokens=1,output_tokens=1)
+    monkeypatch.setattr(project_ai,'generate',slow_provider)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        ai=pool.submit(pg_client.post,f'/api/v1/workflows/{wid}/generate-plan',headers=h(1))
+        try:
+            assert entered.wait(5)
+            if change=='plan':
+                edit=pool.submit(pg_client.put,f'/api/v1/workflows/{wid}/plan',headers=h(1),json={**original,'objective':'Concurrent manual edit'})
+            elif change=='description':
+                edit=pool.submit(pg_client.patch,f"/api/v1/requests/{r['id']}",headers=h(4),json={'description':'Changed description'})
+            elif change=='activation':
+                edit=pool.submit(pg_client.post,f'/api/v1/workflows/{wid}/activate',headers=h(1))
+            else:
+                def deactivate():
+                    for db in app.dependency_overrides[db_session]():
+                        db.get(User,1).active=False;db.commit()
+                    return 200
+                edit=pool.submit(deactivate)
+            changed=edit.result(timeout=4)
+            assert (changed if change=='deactivate_user' else changed.status_code)==200
+        finally:
+            release.set()
+        response=ai.result(timeout=8)
+    assert response.status_code==(401 if change=='deactivate_user' else 409)
+    # The admin remains able to inspect the workflow if the initiating user was deactivated.
+    saved=pg_client.get(f'/api/v1/workflows/{wid}',headers=h(4)).json()
+    assert saved['plan']['source']=='manual'
+    assert saved['plan']['plan_data']['objective']==('Concurrent manual edit' if change=='plan' else 'Original plan')
+    assert saved['workflow']['status']==('Active' if change=='activation' else 'Draft')
+
+def test_postgres_simultaneous_ai_drafts_do_not_overwrite(pg_client,monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from types import SimpleNamespace
+    from app import project_ai
+    r=pg_client.post('/api/v1/requests',headers=h(1),json={'title':'Project','description':'Coordinate','request_type':'Cross-Department Project'}).json()
+    wid=pg_client.post(f"/api/v1/requests/{r['id']}/workflow",headers=h(1)).json()['id']
+    barrier=Barrier(2)
+    plan=project_ai.SuggestedPlan(objective='AI proposal',tasks=[project_ai.SuggestedTask(key='a',title='Task',description='Work',department='IT',priority='Normal',required=True,depends_on=[])],deliverables=[],missing_information=[],risks=[],explanation='Review')
+    def provider(*args):
+        barrier.wait(timeout=8)
+        return plan,'test',SimpleNamespace(input_tokens=1,output_tokens=1)
+    monkeypatch.setattr(project_ai,'generate',provider)
+    def request(_): return pg_client.post(f'/api/v1/workflows/{wid}/generate-plan',headers=h(1)).status_code
+    with ThreadPoolExecutor(max_workers=2) as pool: statuses=sorted(pool.map(request,range(2)))
+    assert statuses==[200,409]
+    snapshot=pg_client.get(f'/api/v1/workflows/{wid}',headers=h(1)).json()
+    assert snapshot['plan']['version']==1 and snapshot['plan']['source']=='AI-assisted'
+
+def test_postgres_ai_rechecks_workflow_after_waiting_for_request_lock(pg_client,monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from types import SimpleNamespace
+    from sqlalchemy import event, select
+    from app import project_ai
+    from app.models import Request, ProjectWorkflow, WorkflowPlan, utcnow
+    r=pg_client.post('/api/v1/requests',headers=h(1),json={'title':'Project','description':'Coordinate','request_type':'Cross-Department Project'}).json()
+    wid=pg_client.post(f"/api/v1/requests/{r['id']}/workflow",headers=h(1)).json()['id']
+    plan={'objective':'Manual','tasks':[{'key':'one','title':'One','description':'Work','department_id':1,'depends_on':[]}]}
+    assert pg_client.put(f'/api/v1/workflows/{wid}/plan',headers=h(1),json=plan).status_code==200
+    entered=Event();provider_release=Event();lock_query=Event()
+    proposal=project_ai.SuggestedPlan(objective='AI',tasks=[project_ai.SuggestedTask(key='a',title='Task',description='Work',department='IT',priority='Normal',required=True,depends_on=[])],deliverables=[],missing_information=[],risks=[],explanation='Review')
+    def provider(*args):
+        entered.set()
+        if not provider_release.wait(8): raise RuntimeError('Test provider timed out')
+        return proposal,'test',SimpleNamespace(input_tokens=1,output_tokens=1)
+    monkeypatch.setattr(project_ai,'generate',provider)
+    generator=app.dependency_overrides[db_session]();session=next(generator);engine=session.get_bind()
+    def observe(conn,cursor,statement,parameters,context,executemany):
+        query=statement.upper()
+        if 'FROM REQUESTS' in query and 'FOR UPDATE' in query: lock_query.set()
+    listener_installed=False
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future=pool.submit(pg_client.post,f'/api/v1/workflows/{wid}/generate-plan',headers=h(1))
+        try:
+            assert entered.wait(5)
+            session.scalar(select(Request).where(Request.id==r['id']).with_for_update())
+            workflow=session.get(ProjectWorkflow,wid);workflow.status='Pending Review';workflow.updated_at=utcnow()
+            saved=session.scalar(select(WorkflowPlan).where(WorkflowPlan.workflow_id==wid));saved.status='Pending Review'
+            session.flush()
+            event.listen(engine,'before_cursor_execute',observe)
+            listener_installed=True
+            provider_release.set()
+            assert lock_query.wait(5), 'AI request did not reach the request lock'
+            session.commit()
+            assert future.result(timeout=8).status_code==409
+        finally:
+            provider_release.set();session.rollback()
+            if listener_installed: event.remove(engine,'before_cursor_execute',observe)
+            generator.close()
+    final=pg_client.get(f'/api/v1/workflows/{wid}',headers=h(1)).json()
+    assert final['workflow']['status']=='Pending Review' and final['plan']['status']=='Pending Review'

@@ -1,6 +1,6 @@
 # OpsPilot
 
-OpsPilot is a portfolio prototype for Meridian Group, a fictional professional services organization. It provides persistent service requests, scoped demo roles, assignment, validated lifecycle transitions, an audit trail, and database-derived dashboards. Optional AI request analysis supports human review; deterministic routing, purchase approvals and incident response targets are implemented as fictional demo workflows. Cross-department project orchestration remains future work.
+OpsPilot is a portfolio prototype for Meridian Group, a fictional professional services organization. It provides persistent service requests, scoped demo roles, assignment, validated lifecycle transitions, an audit trail, and database-derived dashboards. Optional AI request analysis supports human review; deterministic routing, purchase approvals and incident response targets are implemented as fictional demo workflows. Cross-department projects support reviewed plans, task dependencies and audited handoffs.
 
 ## Prerequisites
 
@@ -55,7 +55,7 @@ Remove-Item Env:TEST_POSTGRES_URL
 
 ## Prototype and security limitations
 
-The demo-user selector and `X-Demo-User-Id` header simulate identity. Anyone able to call the API can select any seeded identity; this is not authentication, and the application must not be exposed to untrusted users or deployed as a production service. Authorization rules are enforced against the selected database user but do not establish identity. Data is fictional. No external purchasing or payment, cross-department task orchestration, SSO, rate limiting, CSRF controls, or production hardening is implemented. Demo reset deletes records and is intended only for a disposable local database.
+The demo-user selector and `X-Demo-User-Id` header simulate identity. Anyone able to call the API can select any seeded identity; this is not authentication, and the application must not be exposed to untrusted users or deployed as a production service. Authorization rules are enforced against the selected database user but do not establish identity. Data is fictional. No external purchasing or payment, SSO, rate limiting, CSRF controls, or production hardening is implemented. Demo reset deletes records and is intended only for a disposable local database.
 
 
 
@@ -86,3 +86,31 @@ cd C:\Users\chase\Documents\GitHub\OpsPilot\backend
 ```
 
 The worker must remain running for periodic checks. Run it without `--watch` for one evaluation. Purchases require confirmed USD total commitment and sequential approvals; generic status changes cannot bypass financial authorization. Critical and overdue incidents produce in-app escalations, not external notifications. For rules, role limits, examples and holidays see [policy engine](docs/policy-engine.md), [purchase approvals](docs/approval-workflows.md) and [incident SLAs](docs/incident-sla.md).
+
+## Phase 4 project workflows
+
+After applying migrations and rerunning the idempotent demo seed, open Workflows or a cross-department request. Create a workflow, save and submit a manual plan, then explicitly approve activation. Task dependencies control when work becomes ready; a project owner must explicitly authorize final completion. AI planning is optional and creates only a draft. Assigned users without request visibility can use My Tasks without gaining access to the full request.
+
+See [workflow orchestration](docs/workflow-orchestration.md) for the marketing campaign demonstration, permissions and optional billable AI planning check.
+# Phase 5 analytics preview
+
+Select a Department Manager or Operations Admin to open Analytics. Reporting is scoped to a fixed department or organization cohort; Operations Admin can also explicitly run the billable synthetic AI evaluation. Enter the model's current token prices and a budget before starting. The budget is a planning estimate, not a provider-enforced spending limit. The 100-case synthetic dataset is exploratory and all labels await human review. No live evaluation runs automatically.
+
+Business Impact accepts illustrative assumptions and exports a JSON scenario. It does not claim observed labor savings. The Analytics workspace reads an isolated fictional dataset; the existing general analytics endpoint retains its coarse restrictions. See [analytics methodology](docs/analytics-methodology.md), [AI evaluation](docs/ai-evaluation.md), [process comparison](docs/process-comparison.md), and [ROI model](docs/roi-model.md).
+
+### Set up the isolated synthetic analytics dataset
+
+Use a **new empty local database**. The initialization command refuses to label a nonempty unmarked database as synthetic. Do not put real data in this database or point the application API at it for normal use. These commands preserve the ordinary `opspilot` database:
+
+```powershell
+docker compose up -d
+docker compose exec -T db createdb -U opspilot opspilot_synthetic
+cd backend
+$env:DATABASE_URL = 'postgresql+psycopg://opspilot:opspilot@127.0.0.1:5432/opspilot_synthetic'
+.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe -m app.synthetic_seed
+Remove-Item Env:DATABASE_URL
+```
+
+The `createdb` step is needed only once. Add `SYNTHETIC_DATABASE_URL=postgresql+psycopg://opspilot:opspilot@127.0.0.1:5432/opspilot_synthetic` to `backend/.env` and restart the backend. The dataset initialization is idempotent and does not backfill or modify the ordinary database. Analytics reads it in a read-only database transaction. This is a portfolio simulation, not a secure isolation boundary against a database administrator or an incorrectly configured external writer.
+

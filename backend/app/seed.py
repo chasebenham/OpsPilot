@@ -80,6 +80,8 @@ def seed(reset=False):
         if db.scalar(select(Department.id).limit(1)) is not None:
             seed_approvers(db)
             seed_workflows(db)
+            from .project_seed import seed_projects
+            seed_projects(db)
             print('Existing requests preserved; Meridian approvers are present.')
             return
         departments = [Department(name=n) for n in NAMES]; db.add_all(departments); db.flush()
@@ -103,6 +105,8 @@ def seed(reset=False):
             db.add(RequestEvent(request_id=req.id, actor_id=users[-1].id, event_type='assigned_user_id_changed', new_value=str(agent.id), created_at=created+timedelta(minutes=20)))
             for j in range(1,len(path)):
                 db.add(RequestEvent(request_id=req.id, actor_id=agent.id, event_type='status_changed', previous_value=path[j-1], new_value=path[j], created_at=created+timedelta(hours=j)))
-        db.commit(); seed_approvers(db); seed_workflows(db); print('Seeded Meridian departments, users, and demo requests.')
+        db.commit(); seed_approvers(db); seed_workflows(db)
+        from .project_seed import seed_projects
+        seed_projects(db); print('Seeded Meridian departments, users, and demo requests.')
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(); parser.add_argument('--reset', action='store_true'); args = parser.parse_args(); seed(args.reset)

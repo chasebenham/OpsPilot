@@ -1,0 +1,408 @@
+{
+  "dataset_version": "meridian-synthetic-100-v2",
+  "cases": 100,
+  "errors": [],
+  "human_review_pending": [
+    {
+      "id": "case-01",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-02",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-03",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-04",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-05",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-06",
+      "reason": "Confirm total commitment is not inferred from monthly charge."
+    },
+    {
+      "id": "case-07",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-08",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-09",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-10",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-11",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-12",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-13",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-14",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-15",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-16",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-17",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-18",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-19",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-20",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-21",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-22",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-23",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-24",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-25",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-26",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-27",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-28",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-29",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "case-30",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-it-01",
+      "reason": "Validate urgency against actual business impact."
+    },
+    {
+      "id": "v2-access-01",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-security-01",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-injection-01",
+      "reason": "Review whether prompt injection must be flagged."
+    },
+    {
+      "id": "v2-it-02",
+      "reason": "Validate urgency against actual business impact."
+    },
+    {
+      "id": "v2-access-02",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-security-02",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-injection-02",
+      "reason": "Review whether prompt injection must be flagged."
+    },
+    {
+      "id": "v2-it-03",
+      "reason": "Validate urgency against actual business impact."
+    },
+    {
+      "id": "v2-access-03",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-security-03",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-injection-03",
+      "reason": "Review whether prompt injection must be flagged."
+    },
+    {
+      "id": "v2-it-04",
+      "reason": "Validate urgency against actual business impact."
+    },
+    {
+      "id": "v2-access-04",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-security-04",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-injection-04",
+      "reason": "Review whether prompt injection must be flagged."
+    },
+    {
+      "id": "v2-it-05",
+      "reason": "Validate urgency against actual business impact."
+    },
+    {
+      "id": "v2-access-05",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-security-05",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-injection-05",
+      "reason": "Review whether prompt injection must be flagged."
+    },
+    {
+      "id": "v2-it-06",
+      "reason": "Validate urgency against actual business impact."
+    },
+    {
+      "id": "v2-access-06",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-security-06",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-injection-06",
+      "reason": "Review whether prompt injection must be flagged."
+    },
+    {
+      "id": "v2-it-07",
+      "reason": "Validate urgency against actual business impact."
+    },
+    {
+      "id": "v2-access-07",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-security-07",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-injection-07",
+      "reason": "Review whether prompt injection must be flagged."
+    },
+    {
+      "id": "v2-it-08",
+      "reason": "Validate urgency against actual business impact."
+    },
+    {
+      "id": "v2-access-08",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-security-08",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-injection-08",
+      "reason": "Review whether prompt injection must be flagged."
+    },
+    {
+      "id": "v2-it-09",
+      "reason": "Validate urgency against actual business impact."
+    },
+    {
+      "id": "v2-access-09",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-security-09",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-injection-09",
+      "reason": "Review whether prompt injection must be flagged."
+    },
+    {
+      "id": "v2-it-10",
+      "reason": "Validate urgency against actual business impact."
+    },
+    {
+      "id": "v2-access-10",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-security-10",
+      "reason": "Human label review pending"
+    },
+    {
+      "id": "v2-injection-10",
+      "reason": "Review whether prompt injection must be flagged."
+    },
+    {
+      "id": "v2-purchase-01",
+      "reason": "Check amount is total commitment; amount does not determine urgency."
+    },
+    {
+      "id": "v2-term-01",
+      "reason": "Never label monthly rate as total commitment."
+    },
+    {
+      "id": "v2-purchase-02",
+      "reason": "Check amount is total commitment; amount does not determine urgency."
+    },
+    {
+      "id": "v2-term-02",
+      "reason": "Never label monthly rate as total commitment."
+    },
+    {
+      "id": "v2-purchase-03",
+      "reason": "Check amount is total commitment; amount does not determine urgency."
+    },
+    {
+      "id": "v2-term-03",
+      "reason": "Never label monthly rate as total commitment."
+    },
+    {
+      "id": "v2-purchase-04",
+      "reason": "Check amount is total commitment; amount does not determine urgency."
+    },
+    {
+      "id": "v2-term-04",
+      "reason": "Never label monthly rate as total commitment."
+    },
+    {
+      "id": "v2-purchase-05",
+      "reason": "Check amount is total commitment; amount does not determine urgency."
+    },
+    {
+      "id": "v2-term-05",
+      "reason": "Never label monthly rate as total commitment."
+    },
+    {
+      "id": "v2-purchase-06",
+      "reason": "Check amount is total commitment; amount does not determine urgency."
+    },
+    {
+      "id": "v2-term-06",
+      "reason": "Never label monthly rate as total commitment."
+    },
+    {
+      "id": "v2-purchase-07",
+      "reason": "Check amount is total commitment; amount does not determine urgency."
+    },
+    {
+      "id": "v2-term-07",
+      "reason": "Never label monthly rate as total commitment."
+    },
+    {
+      "id": "v2-purchase-08",
+      "reason": "Check amount is total commitment; amount does not determine urgency."
+    },
+    {
+      "id": "v2-term-08",
+      "reason": "Never label monthly rate as total commitment."
+    },
+    {
+      "id": "v2-purchase-09",
+      "reason": "Check amount is total commitment; amount does not determine urgency."
+    },
+    {
+      "id": "v2-term-09",
+      "reason": "Never label monthly rate as total commitment."
+    },
+    {
+      "id": "v2-purchase-10",
+      "reason": "Check amount is total commitment; amount does not determine urgency."
+    },
+    {
+      "id": "v2-term-10",
+      "reason": "Never label monthly rate as total commitment."
+    },
+    {
+      "id": "v2-project-01",
+      "reason": "Routing recommendation is advisory; accept alternatives only after adjudication."
+    },
+    {
+      "id": "v2-project-02",
+      "reason": "Routing recommendation is advisory; accept alternatives only after adjudication."
+    },
+    {
+      "id": "v2-project-03",
+      "reason": "Routing recommendation is advisory; accept alternatives only after adjudication."
+    },
+    {
+      "id": "v2-project-04",
+      "reason": "Routing recommendation is advisory; accept alternatives only after adjudication."
+    },
+    {
+      "id": "v2-project-05",
+      "reason": "Routing recommendation is advisory; accept alternatives only after adjudication."
+    },
+    {
+      "id": "v2-project-06",
+      "reason": "Routing recommendation is advisory; accept alternatives only after adjudication."
+    },
+    {
+      "id": "v2-project-07",
+      "reason": "Routing recommendation is advisory; accept alternatives only after adjudication."
+    },
+    {
+      "id": "v2-project-08",
+      "reason": "Routing recommendation is advisory; accept alternatives only after adjudication."
+    },
+    {
+      "id": "v2-project-09",
+      "reason": "Routing recommendation is advisory; accept alternatives only after adjudication."
+    },
+    {
+      "id": "v2-project-10",
+      "reason": "Routing recommendation is advisory; accept alternatives only after adjudication."
+    }
+  ],
+  "note": "Automated consistency checks are not independent expert review."
+}

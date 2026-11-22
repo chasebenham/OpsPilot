@@ -182,6 +182,16 @@ def test_approval_lifecycle_and_invalidation(env):
         response=env.post(f"/api/v1/approvals/{row['id']}/decision",headers=headers(actor),json={'decision':'Approved'});assert response.status_code==200
         assert env.post(f"/api/v1/approvals/{row['id']}/decision",headers=headers(actor),json={'decision':'Approved'}).json()['idempotent']
     assert response.json()['approval_state']=='Authorized'
+    events=env.get(f'/api/v1/requests/{rid}/events',headers=headers(1)).json()
+    ready=[e for e in events if e['event_type']=='approval_stage_ready']
+    assert len(ready)==3
+    assert {f'stage {i}' for i in range(1,4)} == {next(f'stage {i}' for i in range(1,4) if f'stage {i}' in e['new_value']) for e in ready}
+    from app.analytics import summary
+    for db in app.dependency_overrides[db_session]():
+        waiting=summary(db,True)['approvals']['stage_waiting_time']
+        assert waiting['Department Manager']['count']==1
+        assert waiting['Finance Approver']['count']==1
+        assert waiting['Operations Director']['count']==1
     assert env.put(f'/api/v1/requests/{rid}/purchase-details',headers=headers(1),json={**detail,'vendor':'Different vendor'}).json()['approval_state']=='Needs resubmission'
 
 def test_routing_override_and_critical_escalation(env):
@@ -273,3 +283,120 @@ def test_revoked_approver_capability_disables_queue_action(env):
     for db in app.dependency_overrides[db_session](): db.get(User,4).role='Employee';db.commit()
     assert env.get('/api/v1/approvals',headers=headers(4)).json()[0]['actionable'] is False
     assert env.post(f'/api/v1/approvals/{aid}/decision',headers=headers(4),json={'decision':'Approved'}).status_code==403
+
+def project_draft():
+    return {'objective':'Coordinate a project','tasks':[{'key':'brief','title':'Brief','description':'Write a brief','department_id':1,'assigned_user_id':3,'depends_on':[]},{'key':'review','title':'Review','description':'Review the brief','department_id':2,'depends_on':['brief']},{'key':'launch','title':'Launch','description':'Launch','department_id':1,'depends_on':['brief','review']}],'risks':[],'missing_information':[],'explanation':'Manual','target_completion_date':None}
+
+def test_project_plan_dependencies_handoffs_and_parent_gate(env):
+    request=env.post('/api/v1/requests',headers=headers(1),json={'title':'Project','description':'Plan a launch','request_type':'Cross-Department Project'}).json();rid=request['id']
+    assert env.post(f'/api/v1/requests/{rid}/transition',headers=headers(5),json={'status':'Triaged'}).status_code==200
+    assert env.post(f'/api/v1/requests/{rid}/transition',headers=headers(5),json={'status':'In Progress'}).status_code==409
+    wid=env.post(f'/api/v1/requests/{rid}/workflow',headers=headers(1)).json()['id']
+    assert env.get(f'/api/v1/workflows/{wid}',headers=headers(2)).status_code==404
+    draft=project_draft()
+    assert env.put(f'/api/v1/workflows/{wid}/plan',headers=headers(2),json=draft).status_code==404
+    cycle=project_draft();cycle['tasks'][0]['depends_on']=['launch']
+    assert env.put(f'/api/v1/workflows/{wid}/plan',headers=headers(1),json=cycle).status_code==422
+    duplicate=project_draft();duplicate['tasks'][1]['key']='brief'
+    assert env.put(f'/api/v1/workflows/{wid}/plan',headers=headers(1),json=duplicate).status_code==422
+    unknown=project_draft();unknown['tasks'][0]['department_id']=999
+    assert env.put(f'/api/v1/workflows/{wid}/plan',headers=headers(1),json=unknown).status_code==422
+    assert env.put(f'/api/v1/workflows/{wid}/plan',headers=headers(1),json=draft).status_code==200
+    assert env.post(f'/api/v1/workflows/{wid}/activate',headers=headers(1)).status_code==409
+    assert env.post(f'/api/v1/workflows/{wid}/submit',headers=headers(1)).status_code==200
+    assert env.post(f'/api/v1/workflows/{wid}/activate',headers=headers(1)).status_code==200
+    snap=env.get(f'/api/v1/workflows/{wid}',headers=headers(1)).json();tasks={x['stable_task_key']:x for x in snap['tasks']}
+    assert tasks['brief']['status']=='Ready' and tasks['review']['status']=='Blocked'
+    assert env.get('/api/v1/dashboard',headers=headers(1)).json()['projects']['active_projects']==1
+    assert env.get('/api/v1/dashboard',headers=headers(1)).json()['projects']['blocked_tasks']==2
+    assert env.get(f'/api/v1/workflows/{wid}',headers=headers(3)).status_code==404
+    assert len(env.get('/api/v1/workflow-tasks/mine',headers=headers(3)).json())==1
+    assert env.get(f'/api/v1/requests/{rid}',headers=headers(3)).status_code==404
+    assert env.post(f"/api/v1/workflows/{wid}/tasks/{tasks['review']['id']}/transition",headers=headers(5),json={'status':'In Progress'}).status_code==409
+    assert env.post(f'/api/v1/workflows/{wid}/complete',headers=headers(1)).status_code==409
+    for key in ('brief','review','launch'):
+        tid=tasks[key]['id'];actor=3 if key=='brief' else 5
+        assert env.post(f'/api/v1/workflows/{wid}/tasks/{tid}/transition',headers=headers(actor),json={'status':'In Progress'}).status_code==200
+        assert env.post(f'/api/v1/workflows/{wid}/tasks/{tid}/transition',headers=headers(actor),json={'status':'Completed'}).status_code==200
+        assert env.post(f'/api/v1/workflows/{wid}/tasks/{tid}/transition',headers=headers(actor),json={'status':'Completed'}).status_code==409
+        if key=='brief':
+            assert env.post(f"/api/v1/workflows/{wid}/tasks/{tasks['launch']['id']}/transition",headers=headers(5),json={'status':'In Progress'}).status_code==409
+    snap=env.get(f'/api/v1/workflows/{wid}',headers=headers(1)).json()
+    assert len([e for e in snap['events'] if e['event_type']=='task_unblocked'])==2
+    assert env.post(f'/api/v1/workflows/{wid}/complete',headers=headers(3)).status_code==404
+    assert env.post(f'/api/v1/workflows/{wid}/complete',headers=headers(1)).json()['status']=='Completed'
+    assert env.get(f'/api/v1/requests/{rid}',headers=headers(1)).json()['status']=='Resolved'
+    assert env.get('/api/v1/dashboard',headers=headers(1)).json()['projects']['completed_projects']==1
+
+def test_project_cancellation_and_assignee_validation(env):
+    r=env.post('/api/v1/requests',headers=headers(1),json={'title':'Project','description':'Coordinate','request_type':'Cross-Department Project'}).json();wid=env.post(f"/api/v1/requests/{r['id']}/workflow",headers=headers(1)).json()['id']
+    draft=project_draft();draft['tasks'][0]['assigned_user_id']=6
+    assert env.put(f'/api/v1/workflows/{wid}/plan',headers=headers(1),json=draft).status_code==422
+    assert env.post(f'/api/v1/workflows/{wid}/cancel',headers=headers(2)).status_code==404
+    assert env.post(f'/api/v1/workflows/{wid}/cancel',headers=headers(1)).json()['status']=='Cancelled'
+    assert env.get(f"/api/v1/requests/{r['id']}",headers=headers(1)).json()['status']=='Cancelled'
+
+def test_ai_project_plan_remains_draft_and_validates_departments(env,monkeypatch):
+    from types import SimpleNamespace
+    from app import project_ai
+    r=env.post('/api/v1/requests',headers=headers(1),json={'title':'Campaign','description':'Coordinate launch','request_type':'Cross-Department Project'}).json()
+    wid=env.post(f"/api/v1/requests/{r['id']}/workflow",headers=headers(1)).json()['id']
+    bad=project_ai.SuggestedPlan(objective='Launch',tasks=[project_ai.SuggestedTask(key='a',title='Work',description='Work',department='Unknown',priority='Normal',required=True,depends_on=[])],deliverables=[],missing_information=[],risks=[],explanation='Review')
+    monkeypatch.setattr(project_ai,'generate',lambda *args:(bad,'test',SimpleNamespace(input_tokens=10,output_tokens=10)))
+    assert env.post(f'/api/v1/workflows/{wid}/generate-plan',headers=headers(1)).status_code==422
+    bad.tasks[0].department='IT'
+    assert env.post(f'/api/v1/workflows/{wid}/generate-plan',headers=headers(1)).json()['status']=='Draft'
+    snap=env.get(f'/api/v1/workflows/{wid}',headers=headers(1)).json()
+    assert snap['plan']['source']=='AI-assisted' and snap['workflow']['status']=='Draft' and snap['tasks']==[]
+    assert env.post(f'/api/v1/workflows/{wid}/activate',headers=headers(1)).status_code==409
+    assert env.post(f'/api/v1/workflows/{wid}/submit',headers=headers(1)).status_code==200
+    assert env.patch(f"/api/v1/requests/{r['id']}",headers=headers(5),json={'description':'Changed project'}).status_code==200
+    assert env.post(f'/api/v1/workflows/{wid}/activate',headers=headers(1)).status_code==409
+
+def test_project_rejects_invalid_edges_and_cancelled_predecessor(env):
+    request=env.post('/api/v1/requests',headers=headers(1),json={'title':'Project','description':'Coordinate','request_type':'Cross-Department Project'}).json();wid=env.post(f"/api/v1/requests/{request['id']}/workflow",headers=headers(1)).json()['id']
+    for edges in (['brief'],['external'],['review','review']):
+        bad=project_draft();bad['tasks'][0]['depends_on']=edges
+        assert env.put(f'/api/v1/workflows/{wid}/plan',headers=headers(1),json=bad).status_code==422
+    plan=project_draft();assert env.put(f'/api/v1/workflows/{wid}/plan',headers=headers(1),json=plan).status_code==200
+    assert env.post(f'/api/v1/workflows/{wid}/submit',headers=headers(1)).status_code==200
+    assert env.post(f'/api/v1/workflows/{wid}/activate',headers=headers(1)).status_code==200
+    tasks=env.get(f'/api/v1/workflows/{wid}',headers=headers(1)).json()['tasks'];first=tasks[0]['id']
+    assert env.post(f'/api/v1/workflows/{wid}/tasks/{first}/transition',headers=headers(5),json={'status':'Cancelled'}).status_code==200
+    snapshot=env.get(f'/api/v1/workflows/{wid}',headers=headers(1)).json()
+    assert snapshot['workflow']['status']=='Blocked' and snapshot['tasks'][1]['status']=='Blocked'
+    assert env.post(f'/api/v1/workflows/{wid}/complete',headers=headers(1)).status_code==409
+    assert env.post(f'/api/v1/workflows/{wid}/cancel',headers=headers(1)).status_code==200
+    assert all(t['status']=='Cancelled' for t in env.get(f'/api/v1/workflows/{wid}',headers=headers(1)).json()['tasks'])
+
+def test_project_task_assignment_stays_department_scoped(env):
+    request=env.post('/api/v1/requests',headers=headers(1),json={'title':'Project','description':'Coordinate','request_type':'Cross-Department Project'}).json();wid=env.post(f"/api/v1/requests/{request['id']}/workflow",headers=headers(1)).json()['id']
+    assert env.put(f'/api/v1/workflows/{wid}/plan',headers=headers(1),json=project_draft()).status_code==200
+    assert env.post(f'/api/v1/workflows/{wid}/submit',headers=headers(1)).status_code==200
+    assert env.post(f'/api/v1/workflows/{wid}/activate',headers=headers(1)).status_code==200
+    task=env.get(f'/api/v1/workflows/{wid}',headers=headers(1)).json()['tasks'][0]
+    assert env.put(f"/api/v1/workflows/{wid}/tasks/{task['id']}/assignment",headers=headers(2),json={'assigned_user_id':2}).status_code==404
+    assert env.put(f"/api/v1/workflows/{wid}/tasks/{task['id']}/assignment",headers=headers(1),json={'assigned_user_id':6}).status_code==422
+    assert env.put(f"/api/v1/workflows/{wid}/tasks/{task['id']}/department",headers=headers(1),json={'department_id':2}).status_code==200
+    assert env.put(f"/api/v1/workflows/{wid}/tasks/{task['id']}/assignment",headers=headers(1),json={'assigned_user_id':6}).status_code==200
+    assert env.get(f"/api/v1/requests/{request['id']}",headers=headers(6)).status_code==404
+    assert len(env.get('/api/v1/workflow-tasks/mine',headers=headers(6)).json())==1
+
+def test_ai_planning_releases_database_transaction_before_provider(env,monkeypatch):
+    from types import SimpleNamespace
+    from app import project_ai
+    from app.main import app, db_session
+    r=env.post('/api/v1/requests',headers=headers(1),json={'title':'Project','description':'Coordinate','request_type':'Cross-Department Project'}).json()
+    wid=env.post(f"/api/v1/requests/{r['id']}/workflow",headers=headers(1)).json()['id']
+    original=app.dependency_overrides[db_session];sessions=[]
+    def tracked():
+        for db in original():
+            sessions.append(db)
+            yield db
+    app.dependency_overrides[db_session]=tracked
+    plan=project_ai.SuggestedPlan(objective='Coordinate',tasks=[project_ai.SuggestedTask(key='a',title='Work',description='Do work',department='IT',priority='Normal',required=True,depends_on=[])],deliverables=[],missing_information=[],risks=[],explanation='Review')
+    def provider(*args):
+        assert not sessions[-1].in_transaction()
+        return plan,'test',SimpleNamespace(input_tokens=1,output_tokens=1)
+    monkeypatch.setattr(project_ai,'generate',provider)
+    assert env.post(f'/api/v1/workflows/{wid}/generate-plan',headers=headers(1)).status_code==200

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import os
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, ForeignKey, String, Text, DateTime, Boolean, CheckConstraint, JSON, Numeric, Integer, UniqueConstraint
+from sqlalchemy import create_engine, ForeignKey, String, Text, DateTime, Boolean, CheckConstraint, JSON, Numeric, Integer, UniqueConstraint, Index, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 load_dotenv()
@@ -152,3 +152,92 @@ class EvaluationRun(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     evaluated_count: Mapped[int] = mapped_column(Integer)
+
+class AIEvaluationRun(Base):
+    __tablename__ = 'ai_evaluation_runs'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dataset_version: Mapped[str] = mapped_column(String(80))
+    model_name: Mapped[str] = mapped_column(String(150))
+    prompt_version: Mapped[str] = mapped_column(String(80))
+    created_by_user_id: Mapped[int] = mapped_column(ForeignKey('users.id'))
+    status: Mapped[str] = mapped_column(String(20))
+    configuration: Mapped[dict] = mapped_column(JSON)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (Index('uq_ai_evaluation_one_running', 'status', unique=True, postgresql_where=text("status = 'Running'"), sqlite_where=text("status = 'Running'")),)
+
+class AIEvaluationResult(Base):
+    __tablename__ = 'ai_evaluation_results'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey('ai_evaluation_runs.id', ondelete='CASCADE'), index=True)
+    case_id: Mapped[str] = mapped_column(String(80))
+    expected: Mapped[dict] = mapped_column(JSON)
+    actual: Mapped[dict | None] = mapped_column(JSON)
+    error_category: Mapped[str | None] = mapped_column(String(50))
+    latency_ms: Mapped[int] = mapped_column(Integer)
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    __table_args__ = (UniqueConstraint('run_id', 'case_id', name='uq_ai_evaluation_case'),)
+
+class ProjectWorkflow(Base):
+    __tablename__='project_workflows'
+    id: Mapped[int]=mapped_column(primary_key=True)
+    request_id: Mapped[int]=mapped_column(ForeignKey('requests.id',ondelete='CASCADE'),unique=True,index=True)
+    owner_user_id: Mapped[int]=mapped_column(ForeignKey('users.id'))
+    status: Mapped[str]=mapped_column(String(30),default='Draft',index=True)
+    target_completion_date: Mapped[datetime | None]=mapped_column(DateTime(timezone=True))
+    activated_at: Mapped[datetime | None]=mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None]=mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow,onupdate=utcnow)
+    __table_args__=(CheckConstraint("status IN ('Draft','Pending Review','Active','Blocked','Completed','Cancelled')",name='ck_project_workflow_status'),)
+class WorkflowPlan(Base):
+    __tablename__='workflow_plans'
+    id: Mapped[int]=mapped_column(primary_key=True)
+    workflow_id: Mapped[int]=mapped_column(ForeignKey('project_workflows.id',ondelete='CASCADE'),index=True)
+    version: Mapped[int]=mapped_column(Integer)
+    source: Mapped[str]=mapped_column(String(20))
+    status: Mapped[str]=mapped_column(String(30),default='Draft')
+    proposed_by_user_id: Mapped[int]=mapped_column(ForeignKey('users.id'))
+    approved_by_user_id: Mapped[int | None]=mapped_column(ForeignKey('users.id'))
+    approved_at: Mapped[datetime | None]=mapped_column(DateTime(timezone=True))
+    source_hash: Mapped[str | None]=mapped_column(String(64))
+    plan_data: Mapped[dict]=mapped_column(JSON)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+    __table_args__=(UniqueConstraint('workflow_id','version',name='uq_workflow_plan_version'),CheckConstraint("status IN ('Draft','Pending Review','Approved','Superseded')",name='ck_workflow_plan_status'))
+class WorkflowTask(Base):
+    __tablename__='workflow_tasks'
+    id: Mapped[int]=mapped_column(primary_key=True)
+    workflow_id: Mapped[int]=mapped_column(ForeignKey('project_workflows.id',ondelete='CASCADE'),index=True)
+    plan_id: Mapped[int]=mapped_column(ForeignKey('workflow_plans.id',ondelete='CASCADE'),index=True)
+    stable_task_key: Mapped[str]=mapped_column(String(80))
+    title: Mapped[str]=mapped_column(String(200))
+    description: Mapped[str]=mapped_column(Text)
+    responsible_department_id: Mapped[int]=mapped_column(ForeignKey('departments.id'),index=True)
+    assigned_user_id: Mapped[int | None]=mapped_column(ForeignKey('users.id'),index=True)
+    status: Mapped[str]=mapped_column(String(30),index=True)
+    priority: Mapped[str]=mapped_column(String(20))
+    required: Mapped[bool]=mapped_column(Boolean,default=True)
+    due_at: Mapped[datetime | None]=mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None]=mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None]=mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow,onupdate=utcnow)
+    __table_args__=(UniqueConstraint('plan_id','stable_task_key',name='uq_workflow_task_key'),CheckConstraint("status IN ('Blocked','Ready','In Progress','Completed','Cancelled')",name='ck_workflow_task_status'))
+class TaskDependency(Base):
+    __tablename__='task_dependencies'
+    id: Mapped[int]=mapped_column(primary_key=True)
+    workflow_id: Mapped[int]=mapped_column(ForeignKey('project_workflows.id',ondelete='CASCADE'),index=True)
+    predecessor_task_id: Mapped[int]=mapped_column(ForeignKey('workflow_tasks.id',ondelete='CASCADE'))
+    successor_task_id: Mapped[int]=mapped_column(ForeignKey('workflow_tasks.id',ondelete='CASCADE'))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
+    __table_args__=(UniqueConstraint('predecessor_task_id','successor_task_id',name='uq_task_dependency'),CheckConstraint('predecessor_task_id <> successor_task_id',name='ck_task_dependency_not_self'))
+class WorkflowEvent(Base):
+    __tablename__='workflow_events'
+    id: Mapped[int]=mapped_column(primary_key=True)
+    workflow_id: Mapped[int]=mapped_column(ForeignKey('project_workflows.id',ondelete='CASCADE'),index=True)
+    task_id: Mapped[int | None]=mapped_column(ForeignKey('workflow_tasks.id',ondelete='CASCADE'))
+    actor_id: Mapped[int | None]=mapped_column(ForeignKey('users.id'))
+    event_type: Mapped[str]=mapped_column(String(60))
+    structured_details: Mapped[dict]=mapped_column(JSON)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)

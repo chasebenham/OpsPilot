@@ -7,6 +7,7 @@ const labels: Record<string, string> = {
   clarification: 'Clarification added', ai_analysis_reviewed: 'AI recommendations reviewed',
   policy_routing: 'Routing decision recorded', policy_sla: 'Response target evaluated',
   policy_approval: 'Purchase approval updated', incident_acknowledged: 'Incident acknowledged',
+  approval_stage_ready: 'Approval stage ready',
   incident_escalated: 'Incident escalated', purchase_details_updated: 'Purchase details updated',
 };
 export function describeActivity(event: Event, users: User[], departments: Department[]) {
@@ -20,7 +21,7 @@ export function describeActivity(event: Event, users: User[], departments: Depar
   let label = labels[event.event_type] ?? 'Request updated';
   let detail: string;
   if (event.event_type === 'created') detail = 'Submitted';
-  else if (['policy_routing','policy_sla','policy_approval','incident_acknowledged','incident_escalated','purchase_details_updated'].includes(event.event_type)) detail = event.new_value ?? 'Updated';
+  else if (['policy_routing','policy_sla','policy_approval','approval_stage_ready','incident_acknowledged','incident_escalated','purchase_details_updated'].includes(event.event_type)) detail = event.new_value ?? 'Updated';
   else if (event.event_type === 'description_changed') detail = 'Request description updated';
   else if (event.event_type === 'ai_analysis_reviewed') {
     if (actor !== 'Unknown user') label = `AI recommendations reviewed by ${actor}`;

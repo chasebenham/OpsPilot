@@ -117,6 +117,8 @@ def generate_approvals(db,req,actor):
         row=Approval(request_id=req.id,cycle=cycle,approval_stage=position,required_role_or_capability=role,assigned_approver_id=person.id if person else None,status='Pending',policy_version=POLICY_VERSION)
         db.add(row); rows.append(row)
     record(db,req,'approval','generated',f'Approval cycle {cycle} created; {len(rows)} sequential stage(s) required.',actor)
+    if rows:
+        audit(db,req,'approval_stage_ready',f'Cycle {cycle}, stage 1: {rows[0].required_role_or_capability} ready for review.')
     return rows
 
 def evaluate_all(db, now=None):
